@@ -1,0 +1,197 @@
+clc, clearvars, close all
+
+% Read noisy audio sample
+[y, Fs] = audioread('noisy_signal.aac');
+L = numel(y);
+
+% Initialize time and frequency vectors
+t = (0:1:numel(y)-1)/Fs;
+f = (0:L/2-1)*Fs/L;
+
+% Applying fast Fourier transform to get frequency information
+Y = abs(fft(y));
+Y = Y(1:L/2);
+
+% Display noisy sample
+figure;
+subplot(2,1,1),  plot(t, y)
+xlabel('Time (s)')
+ylabel('Amplitude')
+title('Time domain representation')
+grid on, axis tight
+subplot(2,1,2),  plot(f, Y)
+xlabel('Frequency (Hz)')
+ylabel('Magnitude')
+title('Frequency domain representation')
+grid on, axis tight
+suptitle('Noisy signal')
+
+% From frequency response, it can be observed that noise occurs at two
+% distinct frequencies (two peaks).
+% These peak frequencies that can be determined by indexing.
+% And, to remove these frequencies FIR notch filter can be used (filter 
+% design is given at the end of this script).
+
+% Determine noise frequencies
+[idx, ~] = find(Y > 4e4);
+noise_peaks = f(idx);
+
+% Get length and coefficients of designed filter
+[N, fir_notch] = NotchFilter(Fs, noise_peaks);
+
+% Magnitude and phase response notch filter
+[mag, omega] = freqz(fir_notch);
+figure;
+subplot(2,1,1)
+plot(omega*Fs/2/pi, abs(mag)/max(abs(mag)))
+xlabel('Frequency (Hz)')
+ylabel('Normalized Magnitude')
+title('Magnitude response')
+grid on
+axis tight
+subplot(2,1,2)
+plot(omega*Fs/2/pi, angle(mag))
+xlabel('Frequency (Hz)')
+ylabel('Phase')
+title('Phase response')
+grid on
+axis tight
+suptitle('Designed Notch Filter')
+
+% Filtering
+filtered = conv(y, fir_notch, 'same');
+[mag, omega] = freqz(filtered);
+
+% Display filtered sample
+figure;
+subplot(2,1,1)
+plot(t, filtered)
+xlabel('Time (s)')
+ylabel('Amplitude')
+title('Time domain representation')
+grid on
+axis tight
+subplot(2,1,2)
+plot(omega*Fs/2/pi, abs(mag)/max(abs(mag)))
+xlabel('Frequency (Hz)')
+ylabel('Normalized Magnitude')
+title('Frequency domain representation')
+grid on
+axis tight
+suptitle('Filtered signal')
+
+soundsc(filtered, Fs)
+audiowrite('Filtered_signal.wav', filtered, Fs)
+
+function [N, FIR_notch] = NotchFilter(Fs, f)
+% FIR Notch Filter designed using Kaiser Window
+%
+% Arguments:
+%           Fs: sampling frequency (Hz)
+%           f: frequencies to be removed (Hz)
+% Returns:
+%           N: filter length
+%           FIR_notch: notch filter coefficients
+
+
+% Filter specifications
+Ap = 0.01;      % Maximum passband ripple (dB)
+As = 80;        % Minimum stopband attenuation (dB)
+
+del_p = (10^(Ap/20)-1)/(10^(Ap/20)+1);  % Passband ripple
+del_s = 10^(-As/20);                    % Stopband attenuation
+
+delta = min(del_s,del_p);   % Ripple Factor
+A = -20*log10(delta);       % Attenuation amplitude
+
+%%%% FOR FIRST PEAK
+fp1 = f(1) - 10;        % Lower passband edge (Hz)
+fp2 = f(1) + 10;        % Upper passband edge (Hz)
+fs1 = f(1) - 5;         % Lower stopband edge (Hz)
+fs2 = f(1) + 5;         % Upper stopband edge (Hz)
+fc1 = (fp1 + fs1)/2;    % Lower cutoff frequency
+fc2 = (fp2 + fs2)/2;    % Upper cutoff frequency
+% Transition bandwidth calculation
+deltaw1 = abs(2*pi*fs1/Fs - 2*pi*fp1/Fs);
+deltaw2 = abs(2*pi*fs2/Fs - 2*pi*fp2/Fs);
+delta_w = min(deltaw1, deltaw2);
+
+% Filter Order
+N = abs(ceil((A - 8)/(2.285*delta_w)));
+if rem(N,2) == 1
+    N = N + 1;     % Increment N by 1 if odd
+end
+
+% beta Calculation for Kaiser window
+if A <= 21
+    beta = 0;
+elseif 21<As && As<=50
+    beta = 0.5842*(As-21)^0.4 + 0.07886*(As-21);
+else
+    beta = 0.1102*(As-8.7);
+end
+
+% Kaiser Window
+W = kaiser(N+1, beta);  
+
+% Ideal impulse response of Bandstop/Notch filter
+h = zeros(length(N));
+for i = 1:N+1
+    if i == N/2
+        h(i,:) = 1 - 2*(2*pi*fc2/Fs- 2*pi*fc1/Fs);
+    else
+        h(i,:) = (sin(2*pi*fc1/Fs*(i-N/2))-sin(2*pi*fc2/Fs*(i-N/2)))./(pi*(i-N/2));
+    end
+end
+
+% FIR Notch Filter
+FIR_notch_1 = h.*W;
+
+%%%% FOR SECOND PEAK
+fp1 = f(2) - 10;        % Lower passband edge (Hz)
+fp2 = f(2) + 10;        % Upper passband edge (Hz)
+fs1 = f(2) - 5;         % Lower stopband edge (Hz)
+fs2 = f(2) + 5;         % Upper stopband edge (Hz)
+fc1 = (fp1 + fs1)/2;    % Lower cutoff frequency
+fc2 = (fp2 + fs2)/2;    % Upper cutoff frequency
+% Transition bandwidth calculation
+deltaw1 = abs(2*pi*fs1/Fs - 2*pi*fp1/Fs);
+deltaw2 = abs(2*pi*fs2/Fs - 2*pi*fp2/Fs);
+delta_w = min(deltaw1, deltaw2);
+
+% Filter Order
+N = abs(ceil((A - 8)/(2.285*delta_w)));
+if rem(N,2) == 1
+    N = N + 1;     % Increment N by 1 if odd
+end
+
+% beta Calculation for Kaiser window
+if A <= 21
+    beta = 0;
+elseif 21<As && As<=50
+    beta = 0.5842*(As-21)^0.4 + 0.07886*(As-21);
+else
+    beta = 0.1102*(As-8.7);
+end
+
+% Kaiser Window
+W = kaiser(N+1, beta);  
+
+% Ideal impulse response of Bandstop/Notch filter
+h = zeros(length(N));
+for i = 1:N+1
+    if i == N/2
+        h(i,:) = 1 - 2*(2*pi*fc2/Fs- 2*pi*fc1/Fs);
+    else
+        h(i,:) = (sin(2*pi*fc1/Fs*(i-N/2))-sin(2*pi*fc2/Fs*(i-N/2)))./(pi*(i-N/2));
+    end
+end
+
+% FIR Notch Filter
+FIR_notch_2 = h.*W; 
+
+
+%%%% RESULTING FILTER
+FIR_notch = conv(FIR_notch_1, FIR_notch_2, 'same');
+
+end
