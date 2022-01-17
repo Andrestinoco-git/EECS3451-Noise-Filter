@@ -1,0 +1,107 @@
+clc, clearvars, close all
+
+Fs = 8e3;     % Sampling frequency
+Ap = 0.01;    % passband attenuation (dB)
+fp1 = 500;    % Lower passband edge (Hz)
+fp2 = 1500;   % Upper passband edge (Hz)
+fs1 = 2000;   % Lower stopband edge (Hz)
+fs2 = 3000;   % Upper stopband edge (Hz)
+
+% FIR bandpass filter
+[N, FIR_bandpass] = bandpass_filter(Ap, Fs, fp1, fs1, fs2, fp2);
+
+% Magnitude of bandpass filter
+[mag, omega] = freqz(FIR_bandpass);
+figure;
+subplot(2,1,1)
+plot(omega*Fs/2/pi, abs(mag)/max(abs(mag)))
+xlabel('Frequency (Hz)')
+ylabel('Normalized Magnitude')
+title('Magnitude response')
+grid on
+axis tight
+
+% Phase response of bandpass filter
+subplot(2,1,2)
+plot(omega*Fs/2/pi, angle(mag))
+xlabel('Frequency (Hz)')
+ylabel('Phase')
+title('Phase response')
+grid on
+axis tight
+
+% Print filter length and coefficients
+fprintf('Filter length: %d\n', N)
+fprintf(['Filter coefficients: [', repmat('%g, ', 1, ...
+            numel(FIR_bandpass)-1), '%g]\n'], FIR_bandpass)
+
+
+function [N, FIR_bandpass] = bandpass_filter(Ap, Fs, fp1, fs1, fs2, fp2)
+% FIR Bandpass Filter designed using Kaiser Window
+%
+% Arguments:
+%           Ap: passband attenuation (dB)
+%           Fs: sampling frequency (Hz)
+%           fp1: Lower passband edge (Hz)
+%           fp2: Upper passband edge (Hz)
+%           fs1: Lower stopband edge (Hz)
+%           fs2: Upper stopband edge (Hz)
+% Returns:
+%           N: filter length
+%           FIR_bandpass: bandpass filter coefficients
+
+
+% Filter specifications
+As = 200;       % Maximum Stopband attenuation (dB)
+
+del_p = (10^(Ap/20)-1)/(10^(Ap/20)+1);  % Passband ripple
+del_s = 10^(-As/20);                    % Stopband attenuation
+
+delta = min(del_s,del_p);   % Ripple Factor
+A = -20*log10(delta);       % Attenuation amplitude
+
+wp1 = 2*pi*fp1/Fs;  % Lower passband edge (rad/s)
+wp2 = 2*pi*fp2/Fs;  % Upper passband edge (rad/s)
+ws1 = 2*pi*fs1/Fs;  % Lower stopband edge (rad/s)
+ws2 = 2*pi*fs2/Fs;  % Upper stopband edge (rad/s)
+
+wc1 = (wp1 + ws1)/2;  % Lower cutoff frequency (rad/s)
+wc2 = (wp2 + ws2)/2;  % Upper cutoff frequency (rad/s)
+
+% Transition bandwidth calculation
+deltaw1 = abs(ws1 - wp1);
+deltaw2 = abs(ws2 - wp2);
+delta_w = min(deltaw1,deltaw2);
+
+% Filter Order
+N = abs(ceil((A - 8)/(2.285*delta_w)));
+if rem(N,2) == 1
+    N = N + 1;     % Increment N by 1 if odd
+end
+
+% beta Calculation for Kaiser window
+if A <= 21
+    beta = 0;
+elseif 21<As && As<=50
+    beta = 0.5842*(As-21)^0.4 + 0.07886*(As-21);
+else
+    beta = 0.1102*(As-8.7);
+end
+
+% Kaiser Window
+W = kaiser(N+1, beta);  
+
+% Ideal impulse response of Bandpass filter
+h = zeros(length(N));
+for i = 1:N+1
+    if i == N/2
+        h(i,:) = 2*(wc2- wc1);
+    else
+        h(i,:) = (sin(wc1*(i-N/2))-sin(wc2*(i-N/2)))./(pi*(i-N/2));
+    end
+end
+
+% FIR Bandpass Filter
+FIR_bandpass = h.*W; 
+
+end
